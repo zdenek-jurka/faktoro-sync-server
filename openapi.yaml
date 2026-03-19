@@ -1,0 +1,860 @@
+openapi: 3.1.0
+info:
+  title: Faktoro Sync Server API
+  version: 0.1.0
+  description: |
+    API for pairing devices, sync (snapshot + online incremental), E2E key envelope exchange,
+    and sync event notifications.
+servers:
+  - url: __PUBLIC_BASE_URL__
+tags:
+  - name: Meta
+  - name: Pairing
+  - name: Devices
+  - name: Crypto
+  - name: Sync
+  - name: Events
+paths:
+  /:
+    get:
+      tags: [Meta]
+      summary: Service metadata
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RootResponse'
+  /health:
+    get:
+      tags: [Meta]
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/pair/bootstrap:
+    get:
+      tags: [Pairing]
+      summary: Build bootstrap payload for app pairing flow
+      responses:
+        '200':
+          description: Bootstrap payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PairBootstrapResponse'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/pair/qr:
+    get:
+      tags: [Pairing]
+      summary: Render QR code PNG for payload
+      parameters:
+        - in: query
+          name: payload
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 8192
+      responses:
+        '200':
+          description: PNG image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/pairing/init:
+    post:
+      tags: [Devices]
+      summary: Initialize device pairing and create one-time pairing payload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PairingInitRequest'
+      responses:
+        '200':
+          description: Pairing initialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PairingInitResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/devices/register-from-scan:
+    post:
+      tags: [Devices]
+      summary: Complete pairing from scanned/received pairing payload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterFromScanRequest'
+      responses:
+        '200':
+          description: Device registration updated/completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterFromScanResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/devices/recover-from-code:
+    post:
+      tags: [Devices]
+      summary: Recover auth token from recovery payload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecoverFromCodeRequest'
+      responses:
+        '200':
+          description: Recovery successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecoverFromCodeResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/devices/forget-registration:
+    post:
+      tags: [Devices]
+      summary: Delete entire client instance and all related server data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgetRegistrationRequest'
+      responses:
+        '200':
+          description: Instance deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForgetRegistrationResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/devices:
+    get:
+      tags: [Devices]
+      summary: List all devices in caller instance
+      parameters:
+        - in: query
+          name: device_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: auth_token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Devices listed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListDevicesResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/devices/remove:
+    post:
+      tags: [Devices]
+      summary: Remove another device from instance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveDeviceRequest'
+      responses:
+        '200':
+          description: Device removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoveDeviceResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/crypto/device-public-key:
+    post:
+      tags: [Crypto]
+      summary: Upsert current device public key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertDevicePublicKeyRequest'
+      responses:
+        '200':
+          description: Upsert successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    get:
+      tags: [Crypto]
+      summary: Read target device public key in same instance
+      parameters:
+        - in: query
+          name: device_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: auth_token
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: target_device_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device public key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevicePublicKeyResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/crypto/instance-key-envelope:
+    post:
+      tags: [Crypto]
+      summary: Upsert encrypted instance key envelope for target device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertInstanceKeyEnvelopeRequest'
+      responses:
+        '200':
+          description: Upsert successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    get:
+      tags: [Crypto]
+      summary: Read newest or specific instance key envelope for caller device
+      parameters:
+        - in: query
+          name: device_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: auth_token
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: key_id
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Key envelope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceKeyEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/sync/online/pull:
+    post:
+      tags: [Sync]
+      summary: Pull incremental online changes since timestamp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnlinePullRequest'
+      responses:
+        '200':
+          description: Incremental changes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnlinePullResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/sync/online/push:
+    post:
+      tags: [Sync]
+      summary: Push incremental online changes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnlinePushRequest'
+      responses:
+        '200':
+          description: Incremental changes stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/sync/push:
+    post:
+      tags: [Sync]
+      summary: Push full snapshot backup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushSyncRequest'
+      responses:
+        '200':
+          description: Snapshot stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/sync/pull:
+    post:
+      tags: [Sync]
+      summary: Pull latest snapshot backup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PullSyncRequest'
+      responses:
+        '200':
+          description: Snapshot (if available)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PullSyncResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/sync/events/pull:
+    post:
+      tags: [Events]
+      summary: Pull sync events since timestamp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncEventsPullRequest'
+      responses:
+        '200':
+          description: Event list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncEventsPullResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/sync/events/ws:
+    get:
+      tags: [Events]
+      summary: Subscribe to real-time sync events (WebSocket upgrade)
+      description: |
+        Upgrade this request to WebSocket. Server emits JSON messages in `SyncEventsWsItem` shape.
+        Caller must provide valid `device_id` and `auth_token` query parameters.
+      parameters:
+        - in: query
+          name: device_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: auth_token
+          required: true
+          schema:
+            type: string
+      responses:
+        '101':
+          description: WebSocket protocol switch
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+components:
+  responses:
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    RootResponse:
+      type: object
+      required: [service, status]
+      properties:
+        service:
+          type: string
+          example: faktoro-sync-server
+        status:
+          type: string
+          example: ok
+    HealthResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    OkResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+    JsonObject:
+      type: object
+      additionalProperties: true
+    PairBootstrapResponse:
+      type: object
+      required: [payload, pairing_init_url, server_base_url]
+      properties:
+        payload:
+          type: string
+          description: Serialized bootstrap payload JSON string.
+        pairing_init_url:
+          type: string
+          format: uri
+        server_base_url:
+          type: string
+          format: uri
+    PairingInitRequest:
+      type: object
+      required: [recovery_email, device_name]
+      properties:
+        recovery_email:
+          type: string
+          format: email
+        device_name:
+          type: string
+        instance_id:
+          type: string
+          nullable: true
+    PairingInitResponse:
+      type: object
+      required: [instance_id, device_id, token, payload]
+      properties:
+        instance_id:
+          type: string
+        device_id:
+          type: string
+        token:
+          type: string
+        payload:
+          type: string
+          description: Serialized JSON string with `kind=faktoro_device_pairing_v1`.
+    DevicePublicKeyPayload:
+      type: object
+      required: [key_id, algorithm, public_key]
+      properties:
+        key_id:
+          type: string
+        algorithm:
+          type: string
+          example: x25519
+        public_key:
+          type: string
+    RegisterFromScanRequest:
+      type: object
+      required: [raw_code]
+      properties:
+        raw_code:
+          type: string
+          description: Raw pairing payload string.
+        device_public_key:
+          $ref: '#/components/schemas/DevicePublicKeyPayload'
+    RegisterFromScanResponse:
+      type: object
+      required:
+        [instance_id, device_id, device_name, recovery_email, already_registered, public_key_registered]
+      properties:
+        instance_id:
+          type: string
+        device_id:
+          type: string
+        device_name:
+          type: string
+        recovery_email:
+          type: string
+          format: email
+        already_registered:
+          type: boolean
+        auth_token:
+          type: string
+          nullable: true
+        public_key_registered:
+          type: boolean
+    RecoverFromCodeRequest:
+      type: object
+      required: [raw_code]
+      properties:
+        raw_code:
+          type: string
+          description: Recovery payload string (JSON or PEM-wrapped base64 JSON).
+    RecoverFromCodeResponse:
+      type: object
+      required: [device_id, device_name, auth_token]
+      properties:
+        device_id:
+          type: string
+        device_name:
+          type: string
+        auth_token:
+          type: string
+    ForgetRegistrationRequest:
+      type: object
+      required: [device_id, auth_token]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+    ForgetRegistrationResponse:
+      type: object
+      required: [ok, deleted_instance_id]
+      properties:
+        ok:
+          type: boolean
+        deleted_instance_id:
+          type: string
+    DeviceListItem:
+      type: object
+      required: [device_id, device_name, recovery_email, is_registered, is_current]
+      properties:
+        device_id:
+          type: string
+        device_name:
+          type: string
+        recovery_email:
+          type: string
+          format: email
+        is_registered:
+          type: boolean
+        is_current:
+          type: boolean
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+    ListDevicesResponse:
+      type: object
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceListItem'
+    RemoveDeviceRequest:
+      type: object
+      required: [device_id, auth_token, target_device_id]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+        target_device_id:
+          type: string
+    RemoveDeviceResponse:
+      type: object
+      required: [ok, removed_device_id]
+      properties:
+        ok:
+          type: boolean
+        removed_device_id:
+          type: string
+    UpsertDevicePublicKeyRequest:
+      type: object
+      required: [device_id, auth_token, key_id, algorithm, public_key]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+        key_id:
+          type: string
+        algorithm:
+          type: string
+        public_key:
+          type: string
+    DevicePublicKeyResponse:
+      type: object
+      required: [device_id, key_id, algorithm, public_key]
+      properties:
+        device_id:
+          type: string
+        key_id:
+          type: string
+        algorithm:
+          type: string
+        public_key:
+          type: string
+    UpsertInstanceKeyEnvelopeRequest:
+      type: object
+      required: [device_id, auth_token, target_device_id, key_id, algorithm, envelope]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+        target_device_id:
+          type: string
+        key_id:
+          type: string
+        algorithm:
+          type: string
+        envelope:
+          type: string
+    InstanceKeyEnvelopeResponse:
+      type: object
+      required: [target_device_id, key_id, algorithm, envelope]
+      properties:
+        target_device_id:
+          type: string
+        key_id:
+          type: string
+        algorithm:
+          type: string
+        envelope:
+          type: string
+    OnlineTableChangeSet:
+      type: object
+      required: [created, updated, deleted]
+      properties:
+        created:
+          type: array
+          items:
+            $ref: '#/components/schemas/JsonObject'
+        updated:
+          type: array
+          items:
+            $ref: '#/components/schemas/JsonObject'
+        deleted:
+          type: array
+          items:
+            type: string
+    OnlinePullRequest:
+      type: object
+      required: [device_id, auth_token]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+        last_pulled_at:
+          type: integer
+          format: int64
+          nullable: true
+    OnlinePushRequest:
+      type: object
+      required: [device_id, auth_token, changes]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+        last_pulled_at:
+          type: integer
+          format: int64
+          nullable: true
+        changes:
+          type: object
+          description: |
+            Map of table name to change set.
+            Supported tables: app_settings, config_storage, client, client_address,
+            price_list_item, client_price_override, time_entry, sync_operation,
+            sync_conflict, vat_code, vat_rate, timesheet, invoice, invoice_item.
+          additionalProperties:
+            $ref: '#/components/schemas/OnlineTableChangeSet'
+    OnlinePullResponse:
+      type: object
+      required: [changes, timestamp]
+      properties:
+        changes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/OnlineTableChangeSet'
+        timestamp:
+          type: integer
+          format: int64
+    PushSyncRequest:
+      type: object
+      required: [device_id, auth_token, snapshot]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+        snapshot:
+          $ref: '#/components/schemas/JsonObject'
+    PullSyncRequest:
+      type: object
+      required: [device_id, auth_token]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+    PullSyncResponse:
+      type: object
+      required: [snapshot]
+      properties:
+        snapshot:
+          oneOf:
+            - $ref: '#/components/schemas/JsonObject'
+            - type: 'null'
+    SyncEventsPullRequest:
+      type: object
+      required: [device_id, auth_token]
+      properties:
+        device_id:
+          type: string
+        auth_token:
+          type: string
+        since:
+          type: integer
+          format: int64
+          nullable: true
+        limit:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 1
+          maximum: 500
+    SyncEventItem:
+      type: object
+      required: [event_id, source_device_id, event_type, timestamp, payload]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+        source_device_id:
+          type: string
+        event_type:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+        payload:
+          $ref: '#/components/schemas/JsonObject'
+    SyncEventsPullResponse:
+      type: object
+      required: [events, latest_timestamp]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncEventItem'
+        latest_timestamp:
+          type: integer
+          format: int64
+    SyncEventsWsItem:
+      type: object
+      required: [source_device_id, event_type, timestamp, payload]
+      properties:
+        source_device_id:
+          type: string
+        event_type:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+        payload:
+          $ref: '#/components/schemas/JsonObject'

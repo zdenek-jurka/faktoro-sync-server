@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-faktoro_sync}
+      POSTGRES_USER: ${POSTGRES_USER:-faktoro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faktoro}
+    volumes:
+      - ${POSTGRES_DATA_VOLUME:-postgres_data}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faktoro -d faktoro_sync"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  sync-server:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://faktoro:faktoro@postgres:5432/faktoro_sync}
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-8080}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      SMTP_HOST: ${SMTP_HOST:-smtp.example.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USERNAME: ${SMTP_USERNAME:-mailer@example.com}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-change-me}
+      SMTP_FROM: ${SMTP_FROM:-Faktoro Sync <noreply@example.com>}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -1,0 +1,53 @@
+{
+  "version": "1.0.0",
+  "darkMode": true,
+  "gridEnabling": false,
+  "detailLevel": "All",
+  "tablePositions": [
+    {
+      "name": "client_instances",
+      "schemaName": "public",
+      "x": 12,
+      "y": 12
+    },
+    {
+      "name": "devices",
+      "schemaName": "public",
+      "x": 2033.9612794731497,
+      "y": 284.0938628158845
+    },
+    {
+      "name": "sync_snapshots_shared",
+      "schemaName": "public",
+      "x": 64.07680293885392,
+      "y": 708.1444043321301
+    },
+    {
+      "name": "online_records_shared",
+      "schemaName": "public",
+      "x": 522.5368053009363,
+      "y": 147.06137184115522
+    },
+    {
+      "name": "device_public_keys",
+      "schemaName": "public",
+      "x": 1417.5194184341158,
+      "y": 341.6895306859206
+    },
+    {
+      "name": "instance_key_envelopes",
+      "schemaName": "public",
+      "x": 1417.5194184341158,
+      "y": 637.942238267148
+    },
+    {
+      "name": "instance_sync_events",
+      "schemaName": "public",
+      "x": 1417.5194184341158,
+      "y": 981.9999999999999
+    }
+  ],
+  "tableGroupCollapseStates": [],
+  "stickyNoteLayouts": [],
+  "referencePaths": []
+}

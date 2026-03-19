@@ -1,0 +1,27 @@
+# Rust build artifacts
+/target/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# SQLx local metadata cache (optional offline mode)
+.sqlx/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Local Docker Compose overrides
+docker-compose.override.yml
+
+# Local PostgreSQL bind mount data
+local/postgres-data/

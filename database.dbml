@@ -1,0 +1,119 @@
+// Database schema for Faktoro sync server
+// Generated from SQL migrations:
+// - migrations/0001_init.sql
+// - migrations/0002_online_records_source_device.sql
+// Syntax: DBML (Database Markup Language) - https://www.dbml.org/docs/
+
+Project faktoro_sync_server {
+  database_type: 'PostgreSQL'
+  Note: 'Sync server database for client instances, paired devices, snapshots, and online incremental records'
+}
+
+Table client_instances {
+  id text [pk, note: 'Client instance ID']
+  recovery_email text [not null, note: 'Recovery contact email for the instance']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  last_seen_at timestamptz [null]
+
+  Note: 'Logical tenant/instance boundary; multiple devices can belong to one instance'
+}
+
+Table devices {
+  id text [pk, note: 'Device ID']
+  instance_id text [not null, ref: > client_instances.id, note: 'Owning client instance']
+  name text [not null, note: 'Device display name']
+  pairing_token_hash text [not null, note: 'Hashed pairing token']
+  recovery_email text [not null, note: 'Device recovery email']
+  recovery_token_hash text [null, note: 'Hashed recovery token for restore flow']
+  is_registered boolean [not null, default: false]
+  auth_token text [null, note: 'Server-issued auth token after registration']
+  created_at timestamptz [not null, default: `now()`]
+  registered_at timestamptz [null]
+  last_seen_at timestamptz [null]
+
+  Indexes {
+    pairing_token_hash [name: 'idx_devices_pairing_hash']
+    instance_id [name: 'idx_devices_instance_id']
+  }
+
+  Note: 'Paired devices authenticated for sync operations'
+}
+
+Table sync_snapshots_shared {
+  instance_id text [pk, ref: > client_instances.id, note: 'Client instance ID']
+  snapshot jsonb [not null, note: 'Encrypted full snapshot envelope payload']
+  version bigint [not null, default: 1, note: 'Snapshot version counter']
+  updated_at timestamptz [not null, default: `now()`]
+
+  Note: 'Latest full snapshot backup per client instance'
+}
+
+Table online_records_shared {
+  instance_id text [not null, ref: > client_instances.id, note: 'Client instance ID']
+  table_name text [not null, note: 'Logical WatermelonDB table name (app_settings, client, client_address, price_list_item, client_price_override, time_entry, sync_operation, sync_conflict)']
+  record_id text [not null, note: 'Record identifier']
+  raw jsonb [not null, default: `'{}'::jsonb`, note: 'Encrypted record envelope payload']
+  source_device_id text [null, ref: > devices.id, note: 'Last device that modified this record']
+  first_seen_at bigint [not null, note: 'First observed timestamp (ms)']
+  last_modified_at bigint [not null, note: 'Last modified timestamp (ms)']
+  is_deleted boolean [not null, default: false]
+
+  Indexes {
+    (instance_id, table_name, record_id) [pk, name: 'online_records_shared_pkey']
+    (instance_id, table_name, last_modified_at) [name: 'idx_online_records_shared_instance_table_modified']
+    (instance_id, last_modified_at) [name: 'idx_online_records_shared_instance_modified']
+    (instance_id, last_modified_at, source_device_id) [name: 'idx_online_records_shared_instance_modified_source']
+  }
+
+  Note: 'Incremental online sync state shared by all devices in the same instance. Includes app data tables and sync metadata tables (sync_operation, sync_conflict).'
+}
+
+Table device_public_keys {
+  device_id text [pk, ref: > devices.id, note: 'Device ID']
+  instance_id text [not null, ref: > client_instances.id, note: 'Owning instance']
+  key_id text [not null, note: 'Public key identifier/version']
+  algorithm text [not null, note: 'Public key algorithm, e.g. x25519']
+  public_key text [not null, note: 'Device public key material (encoded)']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    instance_id [name: 'idx_device_public_keys_instance_id']
+  }
+
+  Note: 'Per-device public keys for E2E instance key wrapping'
+}
+
+Table instance_key_envelopes {
+  instance_id text [not null, ref: > client_instances.id, note: 'Owning instance']
+  target_device_id text [not null, ref: > devices.id, note: 'Device that can decrypt this envelope']
+  key_id text [not null, note: 'Instance key identifier/version']
+  algorithm text [not null, note: 'Wrapping algorithm']
+  envelope text [not null, note: 'Encrypted instance key envelope (opaque to server)']
+  wrapped_by_device_id text [not null, ref: > devices.id, note: 'Device that produced this envelope']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (instance_id, target_device_id, key_id) [pk, name: 'instance_key_envelopes_pkey']
+    (target_device_id, updated_at) [name: 'idx_instance_key_envelopes_target_device']
+  }
+
+  Note: 'Server-relayed encrypted instance keys for onboarding/recovery (server cannot decrypt)'
+}
+
+Table instance_sync_events {
+  event_id bigint [pk, increment, note: 'Monotonic event identifier']
+  instance_id text [not null, ref: > client_instances.id, note: 'Owning instance']
+  source_device_id text [not null, ref: > devices.id, note: 'Device that produced the change']
+  event_type text [not null, note: 'Event type, e.g. online_push']
+  created_at_ms bigint [not null, note: 'Event timestamp in ms']
+  payload jsonb [not null, default: `'{}'::jsonb`, note: 'Opaque event payload metadata']
+
+  Indexes {
+    (instance_id, created_at_ms) [name: 'idx_instance_sync_events_instance_created']
+  }
+
+  Note: 'Per-instance change notifications for near-real-time sync triggers'
+}

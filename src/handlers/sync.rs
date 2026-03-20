@@ -11,9 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const SYNC_EVENTS_CHANNEL: &str = "faktoro_sync_events";
 
-const ONLINE_SYNC_TABLES: [&str; 14] = [
+const ONLINE_SYNC_TABLES: [&str; 15] = [
     "app_settings",
     "config_storage",
+    "currency_setting",
     "client",
     "client_address",
     "price_list_item",

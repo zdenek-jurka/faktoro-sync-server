@@ -2,6 +2,7 @@
 // Generated from SQL migrations:
 // - migrations/0001_init.sql
 // - migrations/0002_online_records_source_device.sql
+// - migrations/0003_online_records_source_device_set_null.sql
 // Syntax: DBML (Database Markup Language) - https://www.dbml.org/docs/
 
 Project faktoro_sync_server {
@@ -54,7 +55,7 @@ Table online_records_shared {
   table_name text [not null, note: 'Logical WatermelonDB table name (app_settings, client, client_address, price_list_item, client_price_override, time_entry, sync_operation, sync_conflict)']
   record_id text [not null, note: 'Record identifier']
   raw jsonb [not null, default: `'{}'::jsonb`, note: 'Encrypted record envelope payload']
-  source_device_id text [null, ref: > devices.id, note: 'Last device that modified this record']
+  source_device_id text [null, ref: > devices.id, note: 'Last device that modified this record; set to NULL if the device is removed']
   first_seen_at bigint [not null, note: 'First observed timestamp (ms)']
   last_modified_at bigint [not null, note: 'Last modified timestamp (ms)']
   is_deleted boolean [not null, default: false]

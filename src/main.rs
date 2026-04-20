@@ -17,7 +17,9 @@ use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tower_http::cors::{Any, CorsLayer};
+use tower_governor::governor::GovernorConfigBuilder;
+use tower_governor::GovernorLayer;
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
@@ -47,29 +49,77 @@ async fn main() -> anyhow::Result<()> {
     let mailer = build_mailer_from_env()?;
     let (sync_event_tx, _) = broadcast::channel(1024);
     spawn_pg_notify_bridge(database_url.clone(), sync_event_tx.clone());
+    spawn_sync_events_cleanup(db.clone());
+
+    let public_base_url = env::var("PUBLIC_BASE_URL")
+        .unwrap_or_default()
+        .trim_end_matches('/')
+        .to_string();
 
     let state = AppState {
         db,
         mailer,
         sync_event_tx,
+        public_base_url: public_base_url.clone(),
     };
 
-    let app = Router::new()
-        .route("/", get(handlers::meta::root))
-        .route("/health", get(handlers::meta::health))
-        .route("/docs", get(handlers::meta::docs_index))
-        .route("/openapi.yaml", get(handlers::meta::openapi_yaml))
-        .route("/api/pair/bootstrap", get(handlers::pairing::pair_bootstrap))
-        .route("/api/pair/qr", get(handlers::pairing::pair_qr))
+    let body_limit: usize = env::var("REQUEST_BODY_LIMIT_BYTES")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(50 * 1024 * 1024);
+    info!(body_limit_bytes = body_limit, "Request body limit configured");
+
+    let common_burst: u32 = env::var("RATE_LIMIT_COMMON_BURST")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(60);
+    let common_per_second: u64 = env::var("RATE_LIMIT_COMMON_PER_SECOND")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    let sensitive_burst: u32 = env::var("RATE_LIMIT_SENSITIVE_BURST")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(5);
+    let sensitive_per_second: u64 = env::var("RATE_LIMIT_SENSITIVE_PER_SECOND")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(12);
+
+    info!(
+        common_burst, common_per_second,
+        sensitive_burst, sensitive_per_second,
+        "Rate limiting configured"
+    );
+
+    let sensitive_governor = GovernorLayer::new(
+        GovernorConfigBuilder::default()
+            .per_second(sensitive_per_second)
+            .burst_size(sensitive_burst)
+            .finish()
+            .expect("sensitive rate limiter config"),
+    );
+
+    let common_governor = GovernorLayer::new(
+        GovernorConfigBuilder::default()
+            .per_second(common_per_second)
+            .burst_size(common_burst)
+            .finish()
+            .expect("common rate limiter config"),
+    );
+
+    let sensitive_routes = Router::new()
         .route("/api/pairing/init", post(handlers::devices::pairing_init))
         .route(
             "/api/devices/register-from-scan",
             post(handlers::devices::register_from_scan),
         )
         .route(
+            "/api/sync/recovery-bootstrap",
+            post(handlers::devices::upsert_recovery_bootstrap),
+        )
+        .route(
             "/api/devices/recover-from-code",
             post(handlers::devices::recover_from_code),
         )
+        .layer(sensitive_governor);
+
+    let app = Router::new()
+        .route("/", get(handlers::meta::root))
+        .route("/health", get(handlers::meta::health))
+        .route("/docs", get(handlers::meta::docs_index))
+        .route("/openapi.yaml", get(handlers::meta::openapi_yaml))
+        .route("/api/pair/qr", get(handlers::pairing::pair_qr))
         .route(
             "/api/devices/forget-registration",
             post(handlers::devices::forget_registration),
@@ -78,21 +128,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/devices/remove", post(handlers::devices::remove_device))
         .route("/api/sync/events/pull", post(handlers::sync_events::sync_events_pull))
         .route("/api/sync/events/ws", get(handlers::sync_events_ws::sync_events_ws))
-        .route(
-            "/api/crypto/device-public-key",
-            post(handlers::crypto_keys::upsert_device_public_key)
-                .get(handlers::crypto_keys::get_device_public_key),
-        )
-        .route(
-            "/api/crypto/instance-key-envelope",
-            post(handlers::crypto_keys::upsert_instance_key_envelope)
-                .get(handlers::crypto_keys::get_instance_key_envelope),
-        )
         .route("/api/sync/online/pull", post(handlers::sync::sync_online_pull))
         .route("/api/sync/online/push", post(handlers::sync::sync_online_push))
         .route("/api/sync/push", post(handlers::sync::sync_push))
         .route("/api/sync/pull", post(handlers::sync::sync_pull))
-        .layer(CorsLayer::new().allow_origin(Any).allow_headers(Any).allow_methods(Any))
+        .merge(sensitive_routes)
+        .layer(common_governor)
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(body_limit))
+        .layer(build_cors_layer(&public_base_url))
+        .layer(axum::middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -105,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
 }
@@ -168,4 +212,72 @@ fn spawn_pg_notify_bridge(database_url: String, sync_event_tx: broadcast::Sender
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+}
+
+async fn security_headers(
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
+    headers.insert(axum::http::header::X_FRAME_OPTIONS, "DENY".parse().unwrap());
+    headers.insert(axum::http::header::STRICT_TRANSPORT_SECURITY, "max-age=63072000; includeSubDomains".parse().unwrap());
+    headers.insert(axum::http::header::CONTENT_SECURITY_POLICY, "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:".parse().unwrap());
+    response
+}
+
+fn spawn_sync_events_cleanup(db: PgPool) {
+    const RETENTION_DAYS: i64 = 30;
+    const CLEANUP_INTERVAL_HOURS: u64 = 6;
+
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(CLEANUP_INTERVAL_HOURS * 3600));
+        interval.tick().await;
+
+        loop {
+            interval.tick().await;
+
+            let cutoff_ms = (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64)
+                - (RETENTION_DAYS * 24 * 3600 * 1000);
+
+            match sqlx::query("DELETE FROM instance_sync_events WHERE created_at_ms < $1")
+                .bind(cutoff_ms)
+                .execute(&db)
+                .await
+            {
+                Ok(result) => {
+                    let count = result.rows_affected();
+                    if count > 0 {
+                        info!(deleted = count, retention_days = RETENTION_DAYS, "Sync events cleanup completed");
+                    }
+                }
+                Err(error) => {
+                    warn!("Sync events cleanup failed: {error}");
+                }
+            }
+        }
+    });
+}
+
+fn build_cors_layer(public_base_url: &str) -> CorsLayer {
+    use axum::http::{header, Method};
+    use tower_http::cors::AllowOrigin;
+
+    let origin = public_base_url.to_string();
+
+    if origin.is_empty() {
+        warn!("PUBLIC_BASE_URL is not set, CORS will reject all cross-origin requests");
+        return CorsLayer::new();
+    }
+
+    info!(cors_origin = %origin, "CORS allowed origin");
+
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::exact(origin.parse().expect("PUBLIC_BASE_URL must be a valid header value")))
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_methods([Method::GET, Method::POST])
 }

@@ -24,6 +24,13 @@ impl AppError {
         }
     }
 
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            message: message.into(),
+        }
+    }
+
     pub fn not_found(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
@@ -81,5 +88,11 @@ mod tests {
     fn not_found_maps_to_404() {
         let response = AppError::not_found("missing").into_response();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn conflict_maps_to_409() {
+        let response = AppError::conflict("conflict").into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 }

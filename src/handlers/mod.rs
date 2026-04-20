@@ -1,4 +1,3 @@
-pub mod crypto_keys;
 pub mod devices;
 pub mod meta;
 pub mod pairing;

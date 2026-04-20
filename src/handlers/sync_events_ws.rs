@@ -1,17 +1,20 @@
 use crate::app_state::{AppState, SyncEventNotification};
-use crate::auth::authorize_registered_device;
+use crate::auth::{authorize_registered_device, extract_credentials_from_headers};
 use crate::error::AppError;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
+use axum::http::HeaderMap;
 use axum::response::Response;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::warn;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct SyncEventsWsQuery {
+    #[serde(default)]
     pub device_id: String,
+    #[serde(default)]
     pub auth_token: String,
 }
 
@@ -26,9 +29,15 @@ pub struct SyncEventsWsItem {
 pub async fn sync_events_ws(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(query): Query<SyncEventsWsQuery>,
 ) -> Result<Response, AppError> {
-    let auth = authorize_registered_device(&state.db, &query.device_id, &query.auth_token).await?;
+    let (device_id, auth_token) = if let Some(creds) = extract_credentials_from_headers(&headers) {
+        (creds.device_id, creds.auth_token)
+    } else {
+        (query.device_id.clone(), query.auth_token.clone())
+    };
+    let auth = authorize_registered_device(&state.db, &device_id, &auth_token).await?;
     let instance_id = auth.instance_id;
     let own_device_id = auth.device_id;
     let receiver = state.sync_event_tx.subscribe();

@@ -8,7 +8,7 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use qrcode::QrCode;
 use std::io::Cursor;
 use std::env;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Clone)]
 pub struct MailerConfig {
@@ -56,7 +56,10 @@ pub fn build_mailer_from_env() -> anyhow::Result<MailerConfig> {
     let builder = match smtp_security {
         SmtpSecurity::StartTls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_host)?,
         SmtpSecurity::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)?,
-        SmtpSecurity::Plain => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_host),
+        SmtpSecurity::Plain => {
+            warn!("SMTP_SECURITY=plain: credentials and emails will be sent without encryption");
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_host)
+        }
     };
 
     let smtp_auth_enabled = !smtp_username.trim().is_empty();
@@ -80,14 +83,18 @@ pub fn build_mailer_from_env() -> anyhow::Result<MailerConfig> {
 
 pub async fn send_recovery_email(
     mailer: &MailerConfig,
+    instance_id: &str,
     device_id: &str,
     device_name: &str,
     recipient_email: &str,
     recovery_token: &str,
+    server_base_url: &str,
 ) -> Result<(), AppError> {
     let recovery_payload = encode_recovery_payload_pem(&RecoveryPayload {
+        instance_id: instance_id.to_string(),
         device_id: device_id.to_string(),
         recovery_token: recovery_token.to_string(),
+        server_base_url: server_base_url.to_string(),
     })
     .ok_or_else(|| AppError::bad_request("Failed to build recovery payload"))?;
 
@@ -102,12 +109,14 @@ pub async fn send_recovery_email(
         "Recovery code for device '{}'.\n\nQR code is shown inline in this email.\n\nUse this recovery payload in the app:\n{}\n",
         device_name, recovery_payload
     );
+    let escaped_name = escape_html(device_name);
+    let escaped_payload = escape_html(&recovery_payload);
     let html_body = format!(
         "<p>Recovery code for device <strong>{}</strong>.</p>\
          <p>Keep this email for restoring access when device is lost.</p>\
          <p><img alt=\"Faktoro recovery QR\" src=\"data:image/png;base64,{}\" /></p>\
          <p>Use this recovery payload in the app:</p><pre>{}</pre>",
-        device_name, recovery_qr_png_base64, recovery_payload
+        escaped_name, recovery_qr_png_base64, escaped_payload
     );
 
     let message = Message::builder()
@@ -144,4 +153,13 @@ fn build_recovery_qr_png_base64(payload: &str) -> Result<String, AppError> {
     let base64_png = base64::engine::general_purpose::STANDARD.encode(png_bytes);
 
     Ok(base64_png)
+}
+
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }

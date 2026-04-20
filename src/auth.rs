@@ -1,4 +1,6 @@
+use crate::crypto::hash_token;
 use crate::error::AppError;
+use axum::http::HeaderMap;
 use sqlx::PgPool;
 
 #[derive(Debug, Clone)]
@@ -12,13 +14,14 @@ pub async fn authorize_registered_device(
     device_id: &str,
     auth_token: &str,
 ) -> Result<DeviceAuthContext, AppError> {
+    let token_hash = hash_token(auth_token);
     let found = sqlx::query_as::<_, (String, bool)>(
         "SELECT instance_id, is_registered
          FROM devices
          WHERE id = $1 AND auth_token = $2",
     )
     .bind(device_id)
-    .bind(auth_token)
+    .bind(&token_hash)
     .fetch_optional(db)
     .await
     .map_err(AppError::internal)?;
@@ -48,4 +51,32 @@ pub async fn authorize_registered_device(
         }
         _ => Err(AppError::unauthorized("Invalid device auth token")),
     }
+}
+
+pub struct HeaderCredentials {
+    pub device_id: String,
+    pub auth_token: String,
+}
+
+pub fn extract_credentials_from_headers(headers: &HeaderMap) -> Option<HeaderCredentials> {
+    let auth_header = headers.get("authorization")?.to_str().ok()?;
+    let auth_token = auth_header.strip_prefix("Bearer ")?.trim().to_string();
+    if auth_token.is_empty() {
+        return None;
+    }
+
+    let device_id = headers
+        .get("x-device-id")?
+        .to_str()
+        .ok()?
+        .trim()
+        .to_string();
+    if device_id.is_empty() {
+        return None;
+    }
+
+    Some(HeaderCredentials {
+        device_id,
+        auth_token,
+    })
 }

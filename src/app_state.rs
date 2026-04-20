@@ -18,4 +18,5 @@ pub struct AppState {
     pub db: PgPool,
     pub mailer: MailerConfig,
     pub sync_event_tx: broadcast::Sender<SyncEventNotification>,
+    pub public_base_url: String,
 }

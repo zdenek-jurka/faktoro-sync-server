@@ -24,6 +24,34 @@ docker compose up --build
 
 The server is available at `http://localhost:8080`.
 
+## GitHub Container Registry Image
+
+The public Docker image is published to GitHub Container Registry as:
+
+```text
+ghcr.io/zdenek-jurka/faktoro-sync-server
+```
+
+Install and run the latest released image:
+
+```bash
+docker pull ghcr.io/zdenek-jurka/faktoro-sync-server:latest
+docker run --rm -p 8080:8080 ghcr.io/zdenek-jurka/faktoro-sync-server:latest
+```
+
+Install the current edge image from `main`:
+
+```bash
+docker pull ghcr.io/zdenek-jurka/faktoro-sync-server:edge
+```
+
+Create and publish the current `1.0.0` release tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
 `docker-compose.yml` uses defaults for all key variables, so if a key is missing in `.env`, the default value is used.
 
 Before production deployment, configure SMTP variables (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`) and set `PUBLIC_BASE_URL` for correct bootstrap links behind reverse proxy.
